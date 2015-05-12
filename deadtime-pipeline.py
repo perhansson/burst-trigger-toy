@@ -221,6 +221,7 @@ def getLiveTime(N, aveRate, deadTime, pipelineDepth, readoutTime, draw=False, sa
         c2.SaveAs("hp-rate-"+str(aveRate)+"-deadTime-"+str(deadTime)+"-depth-"+str(pipelineDepth)+"-readoutTime-"+str(readoutTime)+".png")
         c3.SaveAs("hr-rate-"+str(aveRate)+"-deadTime-"+str(deadTime)+"-depth-"+str(pipelineDepth)+"-readoutTime-"+str(readoutTime)+".png")
         c33.SaveAs("hts-rate-"+str(aveRate)+"-deadTime-"+str(deadTime)+"-depth-"+str(pipelineDepth)+"-readoutTime-"+str(readoutTime)+".png")
+        c333.SaveAs("pipelinestatus-rate-"+str(aveRate)+"-deadTime-"+str(deadTime)+"-depth-"+str(pipelineDepth)+"-readoutTime-"+str(readoutTime)+".png")
 
     return [nTotTrig, nTotTrigAcc, nDeadtime, nPipelineFull]
 
@@ -244,9 +245,11 @@ def main():
 
     ins = raw_input('press anything to continue')
 
-    N = 100
+    N = 500
     gr_dt_lt = {}
-    for dt in range(5,30,5):
+    dtRange = [0.001, 1.0, 5.0, 10.0, 20.0, 25.0]
+    #for dt in range(5,30,5):
+    for dt in dtRange:
         gr_lt = TGraph()
         n=0
         for irate in range(int(10e3),int(100e3),5000):
@@ -258,7 +261,7 @@ def main():
     
     c4 = TCanvas("c4","c4",10,10,500,700)
     c4.cd()
-    lt_template = TH2F("lt_template","Live time;Average trigger rate (Hz);Live time fraction",10,0,100000,10,0.2,1.0)
+    lt_template = TH2F("lt_template","Live time;Average trigger rate (Hz);Live time fraction",10,0,100000,10,0.2,1.1)
     lt_template.SetStats(False)
     lt_template.Draw()
     n=0
@@ -275,7 +278,8 @@ def main():
     leg.SetFillColor(0)
     leg.SetBorderSize(0)
     leg.Draw()
-    c4.SaveAs("livetime-vs-rate.png")
+    c4.SaveAs("livetime-vs-rate" + "-depth-"+str(pipelineDepth)+"-readoutTime-"+str(readoutTime)+".png")
+
     ins = raw_input('press anything to continue')
 
 
