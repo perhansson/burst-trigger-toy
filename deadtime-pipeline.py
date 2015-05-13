@@ -1,181 +1,9 @@
+#!/usr/bin/python
 import sys
+import argparse
 from ROOT import TH1F, TRandom3, TF1, TCanvas, TMath, TGraph, TH2F, TLegend
+from utils import Trigger, Triggers, Pipeline, PipelineEntry, TiRules, getGlobalTriggerTime, updatePipeline, updateTiTriggers
 
-def getNextTrig(triggers, trig_prev):
-    trig_sel = None
-    for trig in triggers:
-        # skip the exising one
-        if trig_prev == trig:
-            continue
-        # is there a prev trigger?
-        if trig_prev!=None:                
-            # yes, use this trig only if it came later
-            if trig.time<trig_prev.time:
-                continue
-        # get the latest one
-        # if there is none selected, use the current one
-        if trig_sel==None:
-            trig_sel = trig
-        elif trig.time < trig_sel.time:
-            trig_sel = trig
-    
-    return trig_sel
-
-def getSorted(triggers):
-    #print "getSorted"
-    #print triggers.toString()
-    triggers_sorted = []
-    t_prev = None
-    tnext = getNextTrig(triggers, t_prev)
-    while tnext!= None:
-        #print "got tnext ", tnext.toString()
-        triggers_sorted.append(tnext)
-        t_prev = tnext
-        tnext = getNextTrig(triggers, t_prev)
-    return triggers_sorted
-
-
-def getGlobalTriggerTime(period, time, ave_per):
-    return period*ave_per + time
-
-
-
-class Trigger():
-    def __init__(self,period, timestamp):
-        self.period = period
-        self.time = timestamp
-    def getGlobalTime(self, ave_per):
-        return getGlobalTriggerTime(self.period, self.time, ave_per)
-    def toString(self):
-        return " Trigger: period " + str(self.period) + " time " + str(self.time)
-
-
-class Triggers():
-    def __init__(self):
-        self.triggers = []
-    def toString(self):
-        str = ""
-        for  t in self.triggers:
-            str += t.toString() + "\n"
-        return str
-
-class PipelineEntry():
-    def __init__(self,trig,rotime):
-        self.trig = trig
-        self.rotime = rotime
-    def getGlobalTime(self, ave_per):
-        return self.trig.getGlobalTime(ave_per)
-    def toString(self):
-        return self.trig.toString() + " rotimestart " + str(self.rotime)
-
-class Pipeline():
-    def __init__(self, readoutTime):
-        self.triggers = []
-        self.readoutTime = readoutTime
-    def add(self,trig,ave_per):
-        rotime = self.getRoTimeStart(trig,ave_per)
-        self.triggers.append(PipelineEntry(trig,rotime))
-    def remove(self,trig):
-        self.triggers.remove(trig)
-    def getRoTimeStart(self,trig,ave_per):
-        tStart = -1.
-        if len(self.triggers) > 0:
-            # start when the last one is read out
-            tStart = self.triggers[len(self.triggers)-1].rotime + self.readoutTime
-        else:
-            # start immediately
-            tStart = trig.getGlobalTime(ave_per)        
-        return tStart
-    def toString(self):
-        s = ""
-        for entry in self.triggers:
-            s += entry.toString() + "\n"
-        return s
-
-
-class TiRules():
-    def __init__(self):
-        self.rules = {}
-        self.longestHoldOff = 0.
-        self.longestHoldOffMult = 0.
-    def add(self,n,t):
-        self.rules[n] = t
-    def get(self,n):
-        return self.rules[n]
-    def init(self):
-        self.longestHoldOff = self.getLongestHoldOff()
-        self.longestHoldOffMult = self.getLongestHoldOffMult()
-    def getLongestHoldOff(self):
-        vmax = -1
-        for k,v in self.rules.iteritems():
-            if v > vmax:
-                vmax = v
-        if vmax<0:
-            print "ERROR on TiRules vmax=",vmax
-            sys.exit(1)
-        return vmax
-    def getLongestHoldOffMult(self):
-        kmax = -1
-        for k,v in self.rules.iteritems():
-            if self.longestHoldOff == v:
-                kmax = k
-        if kmax<0:
-            print "ERROR on TiRules kmax=",kmax
-            sys.exit(1)
-        return kmax
-    def getTiStrTag(self):
-        s = ""
-        for k,v in self.rules.iteritems():
-            s += " TI-"+str(k)+"="+str(v)
-        return s
-
-
-def updatePipeline(globalTime, pipeline, ave_per, readoutTime):
-    print "updatePipeline: called with globaltime ", globalTime, " and ", len(pipeline.triggers), " triggers in the pipeline"
-    pops = []
-    for trig in pipeline.triggers:
-        dt = globalTime - trig.rotime
-        print "updatePipeline: testing trigger ", trig.toString()
-        if dt > readoutTime:
-            print "updatePipeline: pop trigger with dt ", dt 
-            pops.append(trig)
-    # actually pop them
-    for trig in pops:
-        pipeline.remove(trig)
-    return pops
-
-def updateTiTriggers(globalTime, pipeline, ave_per, tiRules):
-    print "updateTiTriggers: called with globaltime ", globalTime, " and ", len(pipeline.triggers), " triggers outstanding"
-    pops = []
-    # calculate start of sliding window from this particular global time
-    tStartGlobal = globalTime - tiRules.longestHoldOff
-    print "updateTiTriggers: tStartGlobal ", tStartGlobal
-    # loop over triggers and pop the ones that expired
-    for trig in pipeline.triggers:
-        tGlobal = trig.getGlobalTime(ave_per)
-        dt = tGlobal - tStartGlobal
-        print "updateTiTriggers: testing trigger ", trig.toString(), " with global time ", tGlobal, " (dt=",dt,")"
-        if dt < 0:
-            print "updateTiTriggers: pop trigger with dt ", dt
-            pops.append(trig)
-    # actually pop them
-    for trig in pops:
-        pipeline.triggers.remove(trig)
-    return pops
-
-
-def getLastTrigger(pipeline, ave_per):
-    lastTrig = None
-    for trig in pipeline.triggers:            
-        tGlobal = trig.getGlobalTime( ave_per)
-        if lastTrig==None:
-            lastTrig = trig
-        else:            
-            t = trig.getGlobalTime( ave_per)
-            lastT = lastTrig.getGlobalTime(ave_per)
-            if (t-lastT)>0:
-                lastTrig = trig
-    return lastTrig
 
 
 
@@ -317,7 +145,6 @@ def getLiveTime(N, aveRate, deadTime, pipelineDepth, readoutTime, tiRules=None, 
                 print "tiTriggers status after update "
                 print tiTriggers.toString()
                 # check if this trigger is accepted
-                #lastTrig = getLastTrigger(tiTriggers,ave_per)
                 lastTrig = None
                 if len(tiTriggers.triggers) > 0:
                     lastTrig = tiTriggers.triggers[len(tiTriggers.triggers)-1]
@@ -330,7 +157,7 @@ def getLiveTime(N, aveRate, deadTime, pipelineDepth, readoutTime, tiRules=None, 
                         nTiRule1 += 1
                     else:
                         print "passed tiRules 1 with deltaT ", deltaT
-                        if len(tiTriggers.triggers) > tiRules.longestHoldOffMult:
+                        if len(tiTriggers.triggers) >= tiRules.longestHoldOffMult:
                             passTiRules = False
                             print "failed longestHoldOffMult(",tiRules.longestHoldOffMult,") ,", len(tiTriggers.triggers), " tiTriggers outstanding"
                             nTiRule4 += 1                            
@@ -359,7 +186,6 @@ def getLiveTime(N, aveRate, deadTime, pipelineDepth, readoutTime, tiRules=None, 
                     nTotTrigAcc += 1
                 else:                
                     # check if this trigger is accepted
-                    #lastTrig = getLastTrigger(pipeline,ave_per)
                     lastTrig = pipeline.triggers[len(pipeline.triggers)-1]
 
                     print "Last trigger found ", lastTrig.toString()
@@ -442,7 +268,9 @@ def getLiveTime(N, aveRate, deadTime, pipelineDepth, readoutTime, tiRules=None, 
             tleg.AddEntry(htriggersvstime,"Issued triggers prev. period","LP")
             tleg.SetFillColor(0)
             tleg.Draw()
-        ins = raw_input('press enter to end prog')
+
+            ans = raw_input("hit anything to continue")
+
 
     if save:
         tag = "-rate-"+str(aveRate)+"-deadTime-"+str(deadTime)+"-depth-"+str(pipelineDepth)+"-readoutTime-"+str(readoutTime)+tiStrTag.replace(" ","_").replace("=","_")
@@ -459,41 +287,52 @@ def getLiveTime(N, aveRate, deadTime, pipelineDepth, readoutTime, tiRules=None, 
             c44.SaveAs("titriggersvstime"+tag+".png")
             c6.SaveAs("buffervstime"+tag+".png")
 
+
     return [nTotTrig, nTotTrigAcc, nDeadtime, nPipelineFull, nTotTrigAccTi, nTiRule1, nTiRule4]
 
 
-def usage():
-    print "Usage: Nperiods aveRate deadTime readoutTime pipelinedepth [applyTiRules=1|0]"
 
-def main():
-    if len(sys.argv) < 6:
-        usage()
-        return
-    N = int(sys.argv[1]) #1000 #number of periods
-    aveRate = float(sys.argv[2]) #50.0e3 #average Poission trigger rate in Hz
-    deadTime = float(sys.argv[3]) #0.001 # min time required between triggers in us
-    readoutTime = float(sys.argv[4]) #21.0
-    pipelineDepth = int(sys.argv[5]) #2
 
+
+def main(args):
+
+    N = args.N
+    aveRate = args.A
+    deadTime = args.D
+    readoutTime = args.R
+    pipelineDepth = args.P
     tiRulesDefault = None
-    if len(sys.argv) > 6:
-        if int(sys.argv[6])==1:
-            tiRulesDefault = TiRules()
-            #tiRulesDefault.add(1,0.1)
-            tiRulesDefault.add(1,1.4)
-            #tiRulesDefault.add(5,110.0)
-            tiRulesDefault.add(4,88.4)
-            tiRulesDefault.init()
+
+    if args.H!=None and len(args.H)>0:
+        if(len(args.H)!=3):
+            print "Wrong input: trigger rules must be three"
+            sys.exit(1)
+        tiRulesDefault = TiRules()
+        tiRulesDefault.add(1, float(args.H[0]))
+        if float(args.H[1]) < 0.0 and  float(args.H[2])<0:
+            print "Wrong input: need to supply a 4 or 5 trigger holdoff rule, set one to negative"
+            sys.exit(1)
+        if float(args.H[1]) > 0.0 and  float(args.H[2])>0:
+            print "Wrong input: only one rule out of 4 or 5 can be applied, set the other to negative"
+            sys.exit(1)
+        if float(args.H[1]) > 0.0:            
+            tiRulesDefault.add(4, float(args.H[1]))
+        else:
+            tiRulesDefault.add(5, float(args.H[2]))
+        tiRulesDefault.init()
+
+
 
     # Do it once with plots
     res = getLiveTime(N, aveRate, deadTime, pipelineDepth, readoutTime, tiRulesDefault, True, True)
     
     print "Total triggers: sent ", res[0], ", accepted ", res[1], " nDeadtime cut ", res[2], " nPipelineFull ", res[3], ", livetime ", float(res[1])/float(res[0]) , " nTotTrigAccTi ", res[4], " nTiRule1 ", res[5], " nTiRule2 ", res[6]
 
-    ins = raw_input('press anything to continue')
 
 
-    # do it for a range
+    ins = raw_input('press anything to scan over TI RULES')
+
+
 
     N = 500
     gr_tirules_lt = []
@@ -551,7 +390,11 @@ def main():
     tag =  "-depth-"+str(pipelineDepth)+"-readoutTime-"+str(readoutTime)+tiStrTag.replace(" ","_").replace("=","_")
     c4.SaveAs("livetime-vs-rate-for-TIRules"+tag+".png")
 
-    ins = raw_input('press anything to continue')
+
+
+
+
+    ins = raw_input('press anything to scan over dead time')
 
 
 
@@ -600,5 +443,18 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+
+    parser = argparse.ArgumentParser(description='Do toy simulation of APV25 rate capability')
+    parser.add_argument('-N', type=int, default=1000, help='number of trigger periods to simulate')
+    parser.add_argument('-A', type=float, default=50000.0, help='Average trigger rate in Hz')
+    parser.add_argument('-D', type=float, default=0.1, help='Minimum time holdoff between triggers in us')
+    parser.add_argument('-R', type=float, default=20.6, help='Readout time in us')
+    parser.add_argument('-P', type=int, default=5, help='Pipeline depth')
+    parser.add_argument('-H', nargs="*", help='Apply TI HOLDOFF rules 1, 4 and 5 in order')
+    args = parser.parse_args()
+    print args
+
+    ans = raw_input("go")
+
+    main(args)
 
