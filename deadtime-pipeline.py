@@ -338,7 +338,7 @@ def main(args):
     gr_tirules_lt = []
     gr_tirules_lt_titles = []
     dt = 0.1
-    for i in range(4):
+    for i in range(5):
         gr_lt = TGraph()
         n=0
         tiRules = TiRules()
@@ -351,6 +351,8 @@ def main(args):
             tiRules.add(4,88.4)
         elif i==3:
             tiRules.add(5,110.0)
+        elif i==4:
+            tiRules.add(4,30.8)
         else:
             print "error ", i
             sys.exit()
@@ -389,6 +391,7 @@ def main(args):
     tiStrTag = ""
     tag =  "-depth-"+str(pipelineDepth)+"-readoutTime-"+str(readoutTime)+tiStrTag.replace(" ","_").replace("=","_")
     c4.SaveAs("livetime-vs-rate-for-TIRules"+tag+".png")
+    c4.SaveAs("livetime-vs-rate-for-TIRules"+tag+".root")
 
 
 
